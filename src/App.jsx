@@ -38,30 +38,30 @@ import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 
 const standards = {
-  'HMS-25': {
-    53: { lower: 100, upper: 100 },
-    37.5: { lower: 95, upper: 100 },
-    31.5: { lower: null, upper: null },
-    26.5: { lower: 80, upper: 95 },
-    19.0: { lower: null, upper: null },
-    13.2: { lower: 55, upper: 75 },
-    4.75: { lower: 35, upper: 55 },
-    2.36: { lower: 25, upper: 45 },
-    0.425: { lower: 10, upper: 25 },
-    0.075: { lower: 4, upper: 10 },
-  },
-  'MS-25': {
-    53: { lower: 100, upper: 100 },
-    37.5: { lower: 90, upper: 100 },
-    31.5: { lower: null, upper: null },
-    26.5: { lower: 75, upper: 95 },
-    19.0: { lower: null, upper: null },
-    13.2: { lower: 50, upper: 70 },
-    4.75: { lower: 30, upper: 50 },
-    2.36: { lower: 20, upper: 40 },
-    0.425: { lower: 8, upper: 22 },
-    0.075: { lower: 2, upper: 8 },
-  },
+  // 'HMS-25': {
+  //   53: { lower: 100, upper: 100 },
+  //   37.5: { lower: 95, upper: 100 },
+  //   31.5: { lower: null, upper: null },
+  //   26.5: { lower: 80, upper: 95 },
+  //   19.0: { lower: null, upper: null },
+  //   13.2: { lower: 55, upper: 75 },
+  //   4.75: { lower: 35, upper: 55 },
+  //   2.36: { lower: 25, upper: 45 },
+  //   0.425: { lower: 10, upper: 25 },
+  //   0.075: { lower: 4, upper: 10 },
+  // },
+  // 'MS-25': {
+  //   53: { lower: 100, upper: 100 },
+  //   37.5: { lower: 90, upper: 100 },
+  //   31.5: { lower: null, upper: null },
+  //   26.5: { lower: 75, upper: 95 },
+  //   19.0: { lower: null, upper: null },
+  //   13.2: { lower: 50, upper: 70 },
+  //   4.75: { lower: 30, upper: 50 },
+  //   2.36: { lower: 20, upper: 40 },
+  //   0.425: { lower: 8, upper: 22 },
+  //   0.075: { lower: 2, upper: 8 },
+  // },
   'CS-40': {
     53: { lower: 100, upper: 100 },
     37.5: { lower: 90, upper: 100 },
@@ -73,6 +73,18 @@ const standards = {
     2.36: { lower: 20, upper: 40 },
     0.425: { lower: 8, upper: 20 },
     0.075: { lower: 0, upper: 7 },
+  },
+  'RC-40': {
+    53: { lower: 100, upper: 100 },
+    37.5: { lower: 90, upper: 100 },
+    31.5: { lower: null, upper: null },
+    26.5: { lower: null, upper: null },
+    19.0: { lower: 50, upper: 85 },
+    13.2: { lower: null, upper: null },
+    4.75: { lower: 30, upper: 55 },
+    2.36: { lower: 25, upper: 45 },
+    0.425: { lower: 10, upper: 25 },
+    0.075: { lower: 5, upper: 15 },
   },
 };
 
@@ -174,11 +186,10 @@ function App() {
   }, [syntheticData, selectedStandard]);
 
   /**
-   * 「配合比を探索」ボタンがクリックされたときに実行される関数。
-   * 原料1の比率を0%から100%まで1%刻みで総当たりし、選択中の製品規格を
-   * すべて満たす配合比率の範囲を見つけ出す。
+   * 「配合比を提案」ボタンがクリックされたときに実行される関数。
+   * 規格を完全に満たす配合比を探索し、見つからない場合は最も違反が少ない比率を提案する。
    */
-  const handleSearch = () => {
+  const handleSuggestRatio = () => {
     // --- 1. 入力データの前処理と検証 ---
     const sizes1Str = material1.sizes.split(',');
     const percentages1Str = material1.percentages.split(',');
@@ -211,48 +222,101 @@ function App() {
     const standard = standards[selectedStandard];
     const standardSizes = Object.keys(standard).map(Number).filter(size => standard[size].lower !== null || standard[size].upper !== null);
 
-    const validRatios = [];
+    let bestRatio = null;
+    let minTotalDeviation = Infinity;
+    let firstValidRatio = null;
 
+    // --- 2. 配合比を0%から100%まで探索 ---
     for (let ratio1Percent = 0; ratio1Percent <= 100; ratio1Percent++) {
       const ratio1 = ratio1Percent / 100;
       const ratio2 = 1 - ratio1;
-
       const syntheticPercentages = percentages1.map((p1, index) => p1 * ratio1 + percentages2[index] * ratio2);
 
+      let currentTotalDeviation = 0;
       let isOk = true;
+
       for (const size of standardSizes) {
         const interpolatedValue = interpolate(size, sizes1, syntheticPercentages);
         if (interpolatedValue === null) {
           isOk = false;
-          break;
+          currentTotalDeviation += 999; // Interpolation failure is a large penalty
+          continue;
         }
 
         const { lower, upper } = standard[size];
-        if ((lower !== null && interpolatedValue < lower) || (upper !== null && interpolatedValue > upper)) {
+        if (lower !== null && interpolatedValue < lower) {
           isOk = false;
-          break;
+          currentTotalDeviation += lower - interpolatedValue;
+        }
+        if (upper !== null && interpolatedValue > upper) {
+          isOk = false;
+          currentTotalDeviation += interpolatedValue - upper;
         }
       }
 
-      if (isOk) {
-        validRatios.push(ratio1Percent);
+      if (isOk && firstValidRatio === null) {
+        firstValidRatio = ratio1Percent;
+        break; // Found the first valid ratio, stop searching.
+      }
+
+      if (currentTotalDeviation < minTotalDeviation) {
+        minTotalDeviation = currentTotalDeviation;
+        bestRatio = ratio1Percent;
       }
     }
 
-    if (validRatios.length > 0) {
-      const min = Math.min(...validRatios);
-      const max = Math.max(...validRatios);
-      const recommended = Math.round((min + max) / 2);
+    // --- 3. 結果の集計と表示 ---
+    if (firstValidRatio !== null) {
+      // 合格が見つかった場合
+      setMaterial1(prev => ({ ...prev, ratio: firstValidRatio }));
+      setMaterial2(prev => ({ ...prev, ratio: 100 - firstValidRatio }));
       setSearchResult({
-        message: `適合する配合比が見つかりました。`,
-        range: `${min}% 〜 ${max}%`,
-        recommended: recommended,
+        message: '規格を満たす配合比が見つかりました。',
+        ratio: firstValidRatio,
+        isOk: true,
       });
     } else {
+      // 合格が見つからなかった場合 (最もマシなものを提案)
+      setMaterial1(prev => ({ ...prev, ratio: bestRatio }));
+      setMaterial2(prev => ({ ...prev, ratio: 100 - bestRatio }));
+
+      // 提案された比率での詳細な違反情報を再計算
+      const ratio1 = bestRatio / 100;
+      const ratio2 = 1 - ratio1;
+      const syntheticPercentages = percentages1.map((p1, index) => p1 * ratio1 + percentages2[index] * ratio2);
+      let maxDeviation = 0;
+      let maxDeviationSize = null;
+      const ngSizes = [];
+
+      for (const size of standardSizes) {
+        const interpolatedValue = interpolate(size, sizes1, syntheticPercentages);
+        const { lower, upper } = standard[size];
+        let deviation = 0;
+        let isNg = false;
+        if (lower !== null && interpolatedValue < lower) {
+            deviation = lower - interpolatedValue;
+            isNg = true;
+        }
+        if (upper !== null && interpolatedValue > upper) {
+            deviation = Math.max(deviation, interpolatedValue - upper);
+            isNg = true;
+        }
+        if (isNg) {
+            ngSizes.push(size);
+        }
+        if (deviation > maxDeviation) {
+            maxDeviation = deviation;
+            maxDeviationSize = size;
+        }
+      }
+
       setSearchResult({
-        message: 'この2原料では規格を満たす配合比がありません。',
-        range: null,
-        recommended: null,
+        message: '規格を満たす配合比はありません。以下は最も違反の少ない配合比です。',
+        ratio: bestRatio,
+        isOk: false,
+        maxDeviation,
+        maxDeviationSize,
+        ngSizes: [...new Set(ngSizes)].sort((a,b) => b - a), // Unique and sorted
       });
     }
   };
@@ -473,18 +537,19 @@ function App() {
           グラフに規格範囲を表示
         </label>
 
-        <button onClick={handleSearch} style={{ marginLeft: '20px', padding: '10px 20px' }}>
-          配合比を探索
+        <button onClick={handleSuggestRatio} style={{ marginLeft: '20px', padding: '10px 20px' }}>
+          配合比を提案
         </button>
 
         {searchResult && (
           <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#f0f0f0' }}>
-            <p>{searchResult.message}</p>
-            {searchResult.range && (
-              <p>
-                推奨配合比 (原料1): {searchResult.recommended}%<br />
-                適合範囲 (原料1): {searchResult.range}
-              </p>
+            <p><strong>提案結果:</strong> {searchResult.message}</p>
+            {searchResult.ratio !== null && <p><strong>提案配合比 (原料1):</strong> {searchResult.ratio}%</p>}
+            {searchResult.isOk === false && (
+              <div>
+                <p><strong>最大違反量:</strong> {searchResult.maxDeviation.toFixed(2)}% (at {searchResult.maxDeviationSize}mm)</p>
+                <p><strong>NG粒径:</strong> {searchResult.ngSizes.join(', ')}mm</p>
+              </div>
             )}
           </div>
         )}
