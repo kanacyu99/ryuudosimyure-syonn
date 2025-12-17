@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 
 function App() {
@@ -31,20 +31,35 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    const sizes1Str = material1.sizes.split(',');
+    const percentages1Str = material1.percentages.split(',');
+    const sizes2Str = material2.sizes.split(',');
+    const percentages2Str = material2.percentages.split(',');
 
-  const handleCalculate = () => {
-    const sizes1 = material1.sizes.split(',').map(Number);
-    const percentages1 = material1.percentages.split(',').map(Number);
+    if (
+      sizes1Str.length !== percentages1Str.length ||
+      sizes2Str.length !== percentages2Str.length ||
+      sizes1Str.length !== sizes2Str.length ||
+      sizes1Str.includes('') ||
+      percentages1Str.includes('') ||
+      sizes2Str.includes('') ||
+      percentages2Str.includes('')
+    ) {
+      setSyntheticData(null); // データが不完全な場合は合成データをクリア
+      return;
+    }
+
+    const sizes1 = sizes1Str.map(Number);
+    const percentages1 = percentages1Str.map(Number);
     const ratio1 = material1.ratio / 100;
 
-    const sizes2 = material2.sizes.split(',').map(Number);
-    const percentages2 = material2.percentages.split(',').map(Number);
+    const sizes2 = sizes2Str.map(Number);
+    const percentages2 = percentages2Str.map(Number);
     const ratio2 = material2.ratio / 100;
 
-    // Assumption: sizes1 and sizes2 are the same. We'll use sizes1 for the x-axis.
-    // A more robust implementation would handle differing size arrays.
-    if (sizes1.length !== percentages1.length || sizes2.length !== percentages2.length || sizes1.length !== sizes2.length) {
-      alert('各原料の粒径と通過質量百分率のデータ数が一致していることを確認してください。');
+    if (sizes1.some(isNaN) || percentages1.some(isNaN) || sizes2.some(isNaN) || percentages2.some(isNaN)) {
+      setSyntheticData(null); // 数値に変換できないデータが含まれている場合はクリア
       return;
     }
 
@@ -57,28 +72,39 @@ function App() {
       sizes: sizes1,
       percentages: syntheticPercentages,
     });
-  };
+  }, [material1, material2]);
 
   const createPlotData = () => {
     const traces = [];
 
     // Material 1
-    traces.push({
-      x: material1.sizes.split(',').map(Number),
-      y: material1.percentages.split(',').map(Number),
-      mode: 'lines+markers',
-      name: '原料1',
-      type: 'scatter'
-    });
+    // Material 1
+    const sizes1Str = material1.sizes.split(',');
+    const percentages1Str = material1.percentages.split(',');
+    if (sizes1Str.length === percentages1Str.length && !sizes1Str.includes('') && !percentages1Str.includes('')) {
+      traces.push({
+        x: sizes1Str.map(Number),
+        y: percentages1Str.map(Number),
+        mode: 'lines+markers',
+        name: '原料1',
+        type: 'scatter',
+        line: { width: 2 }
+      });
+    }
 
     // Material 2
-    traces.push({
-      x: material2.sizes.split(',').map(Number),
-      y: material2.percentages.split(',').map(Number),
-      mode: 'lines+markers',
-      name: '原料2',
-      type: 'scatter'
-    });
+    const sizes2Str = material2.sizes.split(',');
+    const percentages2Str = material2.percentages.split(',');
+    if (sizes2Str.length === percentages2Str.length && !sizes2Str.includes('') && !percentages2Str.includes('')) {
+      traces.push({
+        x: sizes2Str.map(Number),
+        y: percentages2Str.map(Number),
+        mode: 'lines+markers',
+        name: '原料2',
+        type: 'scatter',
+        line: { width: 2 }
+      });
+    }
 
     // Synthetic
     if (syntheticData) {
@@ -88,7 +114,7 @@ function App() {
         mode: 'lines+markers',
         name: '合成粒度',
         type: 'scatter',
-        line: { color: 'red', width: 4 }
+        line: { color: 'black', width: 5 }
       });
     }
 
@@ -154,10 +180,6 @@ function App() {
           />
         </div>
       </div>
-
-      <button onClick={handleCalculate} style={{ marginTop: '20px', padding: '10px 20px' }}>
-        合成粒度を計算
-      </button>
 
       <Plot
         data={createPlotData()}
