@@ -6,6 +6,26 @@ const PRESETS = {
   demo: [0.075, 0.15, 0.3, 0.6, 1.18, 2.36, 4.75, 9.5, 19],
 };
 
+const STANDARDS = {
+  'RC-40': {
+    '53': { lower: 95, upper: 100 },
+    '37.5': { lower: 90, upper: 100 },
+    '19': { lower: 60, upper: 80 },
+    '9.5': { lower: 40, upper: 60 },
+    '4.75': { lower: 30, upper: 50 },
+    '2.36': { lower: 20, upper: 40 },
+    '0.425': { lower: 10, upper: 25 },
+    '0.075': { lower: 0, upper: 8 },
+  },
+  'CS-40': {
+    '53': { lower: 100, upper: 100 },
+    '37.5': { lower: 95, upper: 100 },
+    '19': { lower: 50, upper: 80 },
+    '4.75': { lower: 15, upper: 40 },
+    '2.36': { lower: 5, upper: 25 },
+  }
+};
+
 function App() {
   const [sieveSizes, setSieveSizes] = useState(PRESETS.demo);
   const [materials, setMaterials] = useState([
@@ -21,6 +41,13 @@ function App() {
     },
   ]);
   const [syntheticData, setSyntheticData] = useState(null);
+  const [selectedStandard, setSelectedStandard] = useState(null);
+  const [suggestion, setSuggestion] = useState('');
+
+  const handleStandardChange = (event) => {
+    const standardName = event.target.value;
+    setSelectedStandard(standardName ? STANDARDS[standardName] : null);
+  };
 
   const handlePresetChange = (event) => {
     const newSieveSizes = PRESETS[event.target.value];
@@ -49,6 +76,85 @@ function App() {
       newMaterials[otherIndex].ratio = 100 - newRatio;
     }
     setMaterials(newMaterials);
+  };
+
+  const handleAddSieveRow = () => {
+    const newSieveSizes = [...sieveSizes, ''];
+    setSieveSizes(newSieveSizes);
+    setMaterials(
+      materials.map((m) => ({
+        ...m,
+        percentages: [...m.percentages, ''],
+      }))
+    );
+  };
+
+  const handleRemoveSieveRow = (index) => {
+    const newSieveSizes = [...sieveSizes];
+    newSieveSizes.splice(index, 1);
+    setSieveSizes(newSieveSizes);
+    setMaterials(
+      materials.map((m) => {
+        const newPercentages = [...m.percentages];
+        newPercentages.splice(index, 1);
+        return { ...m, percentages: newPercentages };
+      })
+    );
+  };
+
+  const handleSieveSizeChange = (index, value) => {
+    const newSieveSizes = [...sieveSizes];
+    newSieveSizes[index] = value;
+    setSieveSizes(newSieveSizes);
+  };
+
+  const handleSuggestBlendRatio = () => {
+    if (!selectedStandard || materials.length < 2) {
+      setSuggestion('規格が選択されていないか、原料が2つ未満です。');
+      return;
+    }
+
+    const p1 = materials[0].percentages.map(parseFloat);
+    const p2 = materials[1].percentages.map(parseFloat);
+    let validRatios = [];
+    let minPenalty = Infinity;
+    let bestRatio = -1;
+
+    for (let r = 0; r <= 100; r++) {
+      let isRatioValid = true;
+      let currentPenalty = 0;
+
+      for (let i = 0; i < sieveSizes.length; i++) {
+        const size = sieveSizes[i];
+        const standard = selectedStandard[size];
+        if (standard && !isNaN(p1[i]) && !isNaN(p2[i])) {
+          const blend = (r / 100) * p1[i] + ((100 - r) / 100) * p2[i];
+          if (blend < standard.lower) {
+            isRatioValid = false;
+            currentPenalty += standard.lower - blend;
+          } else if (blend > standard.upper) {
+            isRatioValid = false;
+            currentPenalty += blend - standard.upper;
+          }
+        }
+      }
+
+      if (isRatioValid) {
+        validRatios.push(r);
+      }
+      if (currentPenalty < minPenalty) {
+        minPenalty = currentPenalty;
+        bestRatio = r;
+      }
+    }
+
+    if (validRatios.length > 0) {
+      const min = Math.min(...validRatios);
+      const max = Math.max(...validRatios);
+      setSuggestion(`適合範囲: 原料1: ${min}〜${max}% (原料2: ${100 - max}〜${100 - min}%)`);
+    } else {
+      setSuggestion(`適合なし。違反量が最小の配合比: 原料1: ${bestRatio}% (原料2: ${100 - bestRatio}%)`);
+    }
   };
 
   useEffect(() => {
@@ -133,6 +239,36 @@ function App() {
       }
     }
 
+    if (selectedStandard) {
+      const x = [];
+      const lower = [];
+      const upper = [];
+      sieveSizes.forEach(size => {
+        if (selectedStandard[size]) {
+          x.push(size);
+          lower.push(selectedStandard[size].lower);
+          upper.push(selectedStandard[size].upper);
+        }
+      });
+
+      traces.push({
+        x,
+        y: upper,
+        mode: 'lines',
+        name: '規格上限',
+        type: 'scatter',
+        line: { color: 'red', dash: 'dot', width: 2 },
+      });
+      traces.push({
+        x,
+        y: lower,
+        mode: 'lines',
+        name: '規格下限',
+        type: 'scatter',
+        line: { color: 'blue', dash: 'dot', width: 2 },
+      });
+    }
+
     return traces;
   };
 
@@ -140,12 +276,22 @@ function App() {
     <div style={{ padding: '20px' }}>
       <h1>粒度加積曲線ジェネレーター</h1>
 
-      <div>
-        <label>粒径セット（プリセット）の切替: </label>
-        <select onChange={handlePresetChange} defaultValue="demo">
-          <option value="demo">既存のデモ用</option>
-          <option value="road_base">路盤材向け</option>
-        </select>
+      <div style={{ display: 'flex', gap: '20px', marginTop: '20px' }}>
+        <div>
+          <label>粒径セット（プリセット）の切替: </label>
+          <select onChange={handlePresetChange} defaultValue="demo">
+            <option value="demo">既存のデモ用</option>
+            <option value="road_base">路盤材向け</option>
+          </select>
+        </div>
+        <div>
+          <label>製品規格: </label>
+          <select onChange={handleStandardChange}>
+            <option value="">規格なし</option>
+            <option value="RC-40">RC-40</option>
+            <option value="CS-40">CS-40</option>
+          </select>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: '20px', marginTop: '20px' }}>
@@ -180,7 +326,14 @@ function App() {
           <tbody>
             {sieveSizes.map((size, sieveIndex) => (
               <tr key={sieveIndex}>
-                <td style={{ padding: '8px' }}>{size}</td>
+                <td style={{ padding: '8px' }}>
+                  <input
+                    type="number"
+                    value={size}
+                    onChange={(e) => handleSieveSizeChange(sieveIndex, e.target.value)}
+                    style={{ width: '90%' }}
+                  />
+                </td>
                 {materials.map((_, matIndex) => (
                   <td key={matIndex} style={{ padding: '8px' }}>
                     <input
@@ -191,10 +344,21 @@ function App() {
                     />
                   </td>
                 ))}
+                <td style={{ padding: '8px' }}>
+                  <button onClick={() => handleRemoveSieveRow(sieveIndex)}>行を削除</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+        <button onClick={handleAddSieveRow} style={{ marginTop: '10px' }}>
+          行を追加
+        </button>
+      </div>
+
+      <div style={{ marginTop: '20px' }}>
+        <button onClick={handleSuggestBlendRatio}>配合比を提案</button>
+        <div style={{ marginTop: '10px', whiteSpace: 'pre-wrap' }}>{suggestion}</div>
       </div>
 
       <Plot
