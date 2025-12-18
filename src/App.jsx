@@ -1,121 +1,136 @@
 import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 
-function App() {
-  const [material1, setMaterial1] = useState({
-    sizes: '0.075, 0.15, 0.3, 0.6, 1.18, 2.36, 4.75, 9.5, 19',
-    percentages: '5, 10, 20, 30, 40, 50, 60, 80, 100',
-    ratio: 50,
-  });
-  const [material2, setMaterial2] = useState({
-    sizes: '0.075, 0.15, 0.3, 0.6, 1.18, 2.36, 4.75, 9.5, 19',
-    percentages: '15, 25, 35, 45, 55, 65, 75, 90, 100',
-    ratio: 50,
-  });
+const PRESETS = {
+  road_base: [53, 37.5, 31.5, 26.5, 19.0, 13.2, 4.75, 2.36, 0.425, 0.075],
+  demo: [0.075, 0.15, 0.3, 0.6, 1.18, 2.36, 4.75, 9.5, 19],
+};
 
+function App() {
+  const [sieveSizes, setSieveSizes] = useState(PRESETS.demo);
+  const [materials, setMaterials] = useState([
+    {
+      name: '原料1',
+      ratio: 50,
+      percentages: Array(sieveSizes.length).fill(''),
+    },
+    {
+      name: '原料2',
+      ratio: 50,
+      percentages: Array(sieveSizes.length).fill(''),
+    },
+  ]);
   const [syntheticData, setSyntheticData] = useState(null);
 
-  const handleRatio1Change = (e) => {
-    const newRatio1 = parseFloat(e.target.value);
-    if (!isNaN(newRatio1) && newRatio1 >= 0 && newRatio1 <= 100) {
-      setMaterial1({ ...material1, ratio: newRatio1 });
-      setMaterial2({ ...material2, ratio: 100 - newRatio1 });
-    }
+  const handlePresetChange = (event) => {
+    const newSieveSizes = PRESETS[event.target.value];
+    setSieveSizes(newSieveSizes);
+    setMaterials(
+      materials.map((m) => ({
+        ...m,
+        percentages: Array(newSieveSizes.length).fill(''),
+      }))
+    );
   };
 
-  const handleRatio2Change = (e) => {
-    const newRatio2 = parseFloat(e.target.value);
-    if (!isNaN(newRatio2) && newRatio2 >= 0 && newRatio2 <= 100) {
-      setMaterial2({ ...material2, ratio: newRatio2 });
-      setMaterial1({ ...material1, ratio: 100 - newRatio2 });
+  const handlePercentageChange = (materialIndex, sieveIndex, value) => {
+    const newMaterials = [...materials];
+    newMaterials[materialIndex].percentages[sieveIndex] = value;
+    setMaterials(newMaterials);
+  };
+
+  const handleRatioChange = (materialIndex, value) => {
+    const newMaterials = [...materials];
+    const newRatio = Math.max(0, Math.min(100, Number(value)));
+    newMaterials[materialIndex].ratio = newRatio;
+
+    if (materials.length === 2) {
+      const otherIndex = 1 - materialIndex;
+      newMaterials[otherIndex].ratio = 100 - newRatio;
     }
+    setMaterials(newMaterials);
   };
 
   useEffect(() => {
-    const sizes1Str = material1.sizes.split(',');
-    const percentages1Str = material1.percentages.split(',');
-    const sizes2Str = material2.sizes.split(',');
-    const percentages2Str = material2.percentages.split(',');
+    const totalRatio = materials.reduce((sum, m) => sum + m.ratio, 0);
+    const normalizedMaterials = materials.map(m => ({
+      ...m,
+      normalizedRatio: (m.ratio / totalRatio) || 0,
+    }));
 
-    if (
-      sizes1Str.length !== percentages1Str.length ||
-      sizes2Str.length !== percentages2Str.length ||
-      sizes1Str.length !== sizes2Str.length ||
-      sizes1Str.includes('') ||
-      percentages1Str.includes('') ||
-      sizes2Str.includes('') ||
-      percentages2Str.includes('')
-    ) {
-      setSyntheticData(null); // データが不完全な場合は合成データをクリア
-      return;
-    }
+    const syntheticPercentages = sieveSizes.map((_, sieveIndex) => {
+      let weightedSum = 0;
+      let totalWeight = 0;
 
-    const sizes1 = sizes1Str.map(Number);
-    const percentages1 = percentages1Str.map(Number);
-    const ratio1 = material1.ratio / 100;
+      normalizedMaterials.forEach(material => {
+        const percentage = parseFloat(material.percentages[sieveIndex]);
+        if (!isNaN(percentage)) {
+          weightedSum += percentage * material.normalizedRatio;
+          totalWeight += material.normalizedRatio;
+        }
+      });
 
-    const sizes2 = sizes2Str.map(Number);
-    const percentages2 = percentages2Str.map(Number);
-    const ratio2 = material2.ratio / 100;
-
-    if (sizes1.some(isNaN) || percentages1.some(isNaN) || sizes2.some(isNaN) || percentages2.some(isNaN)) {
-      setSyntheticData(null); // 数値に変換できないデータが含まれている場合はクリア
-      return;
-    }
-
-    const syntheticPercentages = percentages1.map((p1, index) => {
-      const p2 = percentages2[index];
-      return p1 * ratio1 + p2 * ratio2;
+      return totalWeight > 0 ? weightedSum / totalWeight : null;
     });
 
-    setSyntheticData({
-      sizes: sizes1,
-      percentages: syntheticPercentages,
-    });
-  }, [material1, material2]);
+    const validSyntheticData = syntheticPercentages.some(p => p !== null);
+
+    if (validSyntheticData) {
+      setSyntheticData({
+        sizes: sieveSizes,
+        percentages: syntheticPercentages,
+      });
+    } else {
+      setSyntheticData(null);
+    }
+  }, [materials, sieveSizes]);
 
   const createPlotData = () => {
     const traces = [];
 
-    // Material 1
-    // Material 1
-    const sizes1Str = material1.sizes.split(',');
-    const percentages1Str = material1.percentages.split(',');
-    if (sizes1Str.length === percentages1Str.length && !sizes1Str.includes('') && !percentages1Str.includes('')) {
-      traces.push({
-        x: sizes1Str.map(Number),
-        y: percentages1Str.map(Number),
-        mode: 'lines+markers',
-        name: '原料1',
-        type: 'scatter',
-        line: { width: 2 }
+    materials.forEach((material, index) => {
+      const x = [];
+      const y = [];
+      sieveSizes.forEach((size, i) => {
+        const percentage = parseFloat(material.percentages[i]);
+        if (!isNaN(percentage)) {
+          x.push(size);
+          y.push(percentage);
+        }
       });
-    }
 
-    // Material 2
-    const sizes2Str = material2.sizes.split(',');
-    const percentages2Str = material2.percentages.split(',');
-    if (sizes2Str.length === percentages2Str.length && !sizes2Str.includes('') && !percentages2Str.includes('')) {
-      traces.push({
-        x: sizes2Str.map(Number),
-        y: percentages2Str.map(Number),
-        mode: 'lines+markers',
-        name: '原料2',
-        type: 'scatter',
-        line: { width: 2 }
-      });
-    }
+      if (x.length > 0) {
+        traces.push({
+          x,
+          y,
+          mode: 'lines+markers',
+          name: material.name,
+          type: 'scatter',
+          line: { width: 2 },
+        });
+      }
+    });
 
-    // Synthetic
     if (syntheticData) {
-      traces.push({
-        x: syntheticData.sizes,
-        y: syntheticData.percentages,
-        mode: 'lines+markers',
-        name: '合成粒度',
-        type: 'scatter',
-        line: { color: 'black', width: 5 }
+      const x = [];
+      const y = [];
+      syntheticData.sizes.forEach((size, i) => {
+        if (syntheticData.percentages[i] !== null) {
+          x.push(size);
+          y.push(syntheticData.percentages[i]);
+        }
       });
+
+      if (x.length > 0) {
+        traces.push({
+          x,
+          y,
+          mode: 'lines+markers',
+          name: '合成粒度',
+          type: 'scatter',
+          line: { color: 'black', width: 5 },
+        });
+      }
     }
 
     return traces;
@@ -124,61 +139,62 @@ function App() {
   return (
     <div style={{ padding: '20px' }}>
       <h1>粒度加積曲線ジェネレーター</h1>
-      <div style={{ display: 'flex', gap: '20px' }}>
-        <div>
-          <h2>原料1</h2>
-          <label>配合比 (%):</label>
-          <input
-            type="number"
-            value={material1.ratio}
-            onChange={handleRatio1Change}
-          />
-          <br />
-          <label>粒径 (mm) (カンマ区切り):</label>
-          <br />
-          <textarea
-            rows="5"
-            cols="30"
-            value={material1.sizes}
-            onChange={(e) => setMaterial1({ ...material1, sizes: e.target.value })}
-          />
-          <br />
-          <label>通過質量百分率 (%) (カンマ区切り):</label>
-          <br />
-          <textarea
-            rows="5"
-            cols="30"
-            value={material1.percentages}
-            onChange={(e) => setMaterial1({ ...material1, percentages: e.target.value })}
-          />
-        </div>
-        <div>
-          <h2>原料2</h2>
-          <label>配合比 (%):</label>
-          <input
-            type="number"
-            value={material2.ratio}
-            onChange={handleRatio2Change}
-          />
-          <br />
-          <label>粒径 (mm) (カンマ区切り):</label>
-          <br />
-          <textarea
-            rows="5"
-            cols="30"
-            value={material2.sizes}
-            onChange={(e) => setMaterial2({ ...material2, sizes: e.target.value })}
-          />
-          <br />
-          <label>通過質量百分率 (%) (カンマ区切り):</label>
-          <br />
-          <textarea
-            rows="5"
-            cols="30"
-            value={material2.percentages}
-            onChange={(e) => setMaterial2({ ...material2, percentages: e.target.value })}
-          />
-        </div>
+
+      <div>
+        <label>粒径セット（プリセット）の切替: </label>
+        <select onChange={handlePresetChange} defaultValue="demo">
+          <option value="demo">既存のデモ用</option>
+          <option value="road_base">路盤材向け</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', gap: '20px', marginTop: '20px' }}>
+        {materials.map((material, matIndex) => (
+          <div key={matIndex}>
+            <h2>{material.name}</h2>
+            <label>配合比 (%): </label>
+            <input
+              type="number"
+              value={material.ratio}
+              onChange={(e) => handleRatioChange(matIndex, e.target.value)}
+              min="0"
+              max="100"
+            />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: '20px' }}>
+        <h3>各ふるい（粒径）ごと入力</h3>
+        <table border="1" style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px' }}>粒径 (mm)</th>
+              {materials.map((material, index) => (
+                <th key={index} style={{ padding: '8px' }}>
+                  {material.name} 通過質量百分率 (%)
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sieveSizes.map((size, sieveIndex) => (
+              <tr key={sieveIndex}>
+                <td style={{ padding: '8px' }}>{size}</td>
+                {materials.map((_, matIndex) => (
+                  <td key={matIndex} style={{ padding: '8px' }}>
+                    <input
+                      type="number"
+                      value={materials[matIndex].percentages[sieveIndex]}
+                      onChange={(e) => handlePercentageChange(matIndex, sieveIndex, e.target.value)}
+                      style={{ width: '90%' }}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <Plot
@@ -197,7 +213,7 @@ function App() {
           width: 800,
           height: 600,
           margin: { t: 50, b: 50, l: 50, r: 50 },
-          showlegend: true
+          showlegend: true,
         }}
       />
     </div>
